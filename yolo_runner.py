@@ -8,10 +8,6 @@ logger = logging.getLogger(__name__)
 _growth_model  = None
 _disease_model = None
 
-
-# ──────────────────────────────────────────────
-# 모델 로더 (최초 1회만 로드, 이후 캐시 사용)
-# ──────────────────────────────────────────────
 def _load_growth_model():
     global _growth_model
     if _growth_model is None:
@@ -29,10 +25,6 @@ def _load_disease_model():
         logger.info(f"[YoloRunner] 질병 모델 로드 완료: {YOLO_DISEASE_MODEL_PATH}")
     return _disease_model
 
-
-# ──────────────────────────────────────────────
-# 유틸
-# ──────────────────────────────────────────────
 def _empty_result() -> dict:
     return {
         "growthResult":     "no_detection",
@@ -62,10 +54,6 @@ def _best_detection(results):
     class_name = results.names[best_cls_id]
     return class_name, round(best_conf, 4)
 
-
-# ──────────────────────────────────────────────
-# 생육 단계 추론
-# ──────────────────────────────────────────────
 def _run_growth(img):
     """
     생육 모델 추론.
@@ -86,9 +74,6 @@ def _run_growth(img):
         return "no_detection", 0.0
 
 
-# ──────────────────────────────────────────────
-# 질병 탐지 추론
-# ──────────────────────────────────────────────
 def _run_disease(img):
     """
     질병 모델 추론.

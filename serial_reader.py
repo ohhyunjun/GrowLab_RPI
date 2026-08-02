@@ -1,6 +1,7 @@
 import serial
 import threading
 import logging
+import re
 from config import SERIAL_PORT, SERIAL_BAUD
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ class SerialReader:
         on_data_cb(data: dict)      → 센서값 수신
         on_alert_cb(alert: dict)    → ALERT 수신
         on_float_cb(state: str)     → FLOAT 상태 수신
-        on_seq_photo_cb()           → [SEQ] PHOTO 수신
+        on_seq_photo_cb(port_index) → [PHOTO] PORT:n 수신
         on_seq_done_cb()            → [SEQ] DONE 수신  ← 추가
         """
         self.on_data_cb      = on_data_cb
@@ -23,6 +24,7 @@ class SerialReader:
         self.on_seq_done_cb  = on_seq_done_cb
         self.ser             = None
         self._stop           = threading.Event()
+        self._write_lock     = threading.Lock()
         self._last_water_status = None
 
     def start(self):
@@ -37,14 +39,16 @@ class SerialReader:
             self.ser.close()
 
     def send(self, command: str):
-        """Arduino로 단일 바이트 명령 전송"""
+        """Arduino로 명령 전송. NEXT/ERROR/CFG는 반드시 줄바꿈을 포함한다."""
         if self.ser and self.ser.is_open:
-            self.ser.write(command.encode())
+            with self._write_lock:
+                self.ser.write(command.encode())
+                self.ser.flush()
             logger.info(f"[SerialReader] 전송: {command}")
         else:
             logger.warning(f"[SerialReader] 포트 닫힘, 전송 실패: {command}")
 
-    def _run(self):
+    def _run(self): #
         while not self._stop.is_set():
             try:
                 line = self.ser.readline().decode("utf-8", errors="ignore").strip()
@@ -58,6 +62,8 @@ class SerialReader:
                     self._parse_alert(line)
                 elif line.startswith("[FLOAT]"):
                     self._parse_float(line)
+                elif line.startswith("[PHOTO]"):
+                    self._parse_photo(line)
                 elif line.startswith("[SEQ]"):
                     self._parse_seq(line)
 
@@ -65,32 +71,38 @@ class SerialReader:
                 logger.error(f"[SerialReader] 오류: {e}")
 
     def _parse_seq(self, line: str):
-        if "PHOTO" in line:
-            logger.info("[SerialReader] [SEQ] PHOTO 수신")
-            if self.on_seq_photo_cb:
-                self.on_seq_photo_cb()
-        elif "START" in line:
+        if "START" in line:
             logger.info("[SerialReader] [SEQ] START")
         elif "DONE" in line:
             logger.info("[SerialReader] [SEQ] DONE")
             if self.on_seq_done_cb:   # ← DONE 콜백 호출
                 self.on_seq_done_cb()
 
-    def _parse_data(self, line: str):
+    def _parse_photo(self, line: str):
+        match = re.search(r"PORT:(\d+)", line)
+        if not match:
+            logger.error(f"[SerialReader] PHOTO 포트 파싱 오류: {line}")
+            return
+
+        port_index = int(match.group(1))
+        logger.info(f"[SerialReader] PHOTO 수신 portIndex={port_index}")
+        if self.on_seq_photo_cb:
+            self.on_seq_photo_cb(port_index)
+
+    def _parse_data(self, line: str): #
         try:
             payload = line.replace("[DATA]", "").strip()
-            parts   = dict(p.split(":") for p in payload.split(","))
+            parts = dict(p.split(":") for p in payload.split(","))
 
-            # WATER 키 있을 때만 갱신 (없으면 이전 값 유지)
             if "WATER" in parts:
                 self._last_water_status = (parts["WATER"].strip() == "1")
 
             data = {
-                "temperature":        float(parts["T"]),
-                "humidity":           float(parts["H"]),
-                "ph":                 float(parts["PH"]),
-                "tds":                float(parts["TDS"]),
-                "led":                int(parts.get("LED", 0)),
+                "temperature":float(parts["T"]),
+                "humidity":float(parts["H"]),
+                "ph": float(parts["PH"]),
+                "tds":float(parts["TDS"]),
+                "led":int(parts["LED"]) if "LED" in parts else None,
                 "water_level_status": self._last_water_status,  # None 허용
             }
             self.on_data_cb(data)

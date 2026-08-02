@@ -18,7 +18,6 @@ class MotorScheduler:
         self._interval_hour  = CAMERA_INTERVAL_HOUR
         self._stop           = threading.Event()
         self._wake           = threading.Event()   # 주기 변경 시 대기 중단용
-        self._photo_index    = 0
         self._lock           = threading.Lock()
         self._seq_running    = False
 
@@ -36,15 +35,11 @@ class MotorScheduler:
         self._wake.set()   # 현재 wait 즉시 중단 → 루프 재시작
         logger.info(f"[MotorScheduler] 주기 변경: {hours}시간")
 
-    def on_seq_photo(self):
+    def on_seq_photo(self, port_index: int):
         """
-        SerialReader [SEQ] PHOTO 수신 시 호출.
-        현재 port_index로 촬영 콜백 실행 후 인덱스 증가.
+        SerialReader [PHOTO] PORT:n 수신 시 호출.
+        Arduino가 전달한 실제 포트 번호를 그대로 사용한다.
         """
-        with self._lock:
-            port_index        = self._photo_index
-            self._photo_index += 1
-
         logger.info(f"[MotorScheduler] 촬영 트리거 portIndex={port_index}")
         if self.on_seq_photo_cb:
             self.on_seq_photo_cb(port_index)
@@ -70,7 +65,6 @@ class MotorScheduler:
                 logger.warning("[MotorScheduler] 이전 시퀀스 진행 중, 새 시퀀스 스킵")
                 return
             self._seq_running = True
-            self._photo_index = 0
 
         logger.info("[MotorScheduler] 시퀀스 시작 ('p' 전송)")
         self.send_cmd("p")

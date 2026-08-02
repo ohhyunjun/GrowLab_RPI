@@ -22,7 +22,7 @@ class LedScheduler:
     def stop(self):
         self._stop.set()
 
-    def handle_command(self, cmd: str):
+    def handle_command(self, cmd: str): #
         """
         서버 MqttPublisher command 토픽 페이로드 처리
           "O"                 → 수동 LED ON
