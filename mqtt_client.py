@@ -1,17 +1,15 @@
 import logging
 import ssl
-import json
 import paho.mqtt.client as mqtt
 from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS,
     MQTT_CA_CERT_PATH, MQTT_TOPIC_COMMAND, MQTT_TOPIC_PHOTO_INTERVAL,
-    MQTT_TOPIC_CULTIVATION_CONFIG,
 )
 
 logger = logging.getLogger(__name__)
 
 class MqttClient:
-    def __init__(self, on_command_cb, on_photo_interval_cb, on_cultivation_config_cb):
+    def __init__(self, on_command_cb, on_photo_interval_cb):
         """
         서버 MqttPublisher 토픽 구조:
           growlab/{serial}/command        → LED 명령
@@ -27,7 +25,6 @@ class MqttClient:
         """
         self.on_command_cb        = on_command_cb
         self.on_photo_interval_cb = on_photo_interval_cb
-        self.on_cultivation_config_cb = on_cultivation_config_cb
 
         self._client = mqtt.Client()
         self._client.username_pw_set(MQTT_USER, MQTT_PASS)
@@ -61,11 +58,9 @@ class MqttClient:
         if rc == 0:
             client.subscribe(MQTT_TOPIC_COMMAND, qos=1)
             client.subscribe(MQTT_TOPIC_PHOTO_INTERVAL, qos=1)
-            client.subscribe(MQTT_TOPIC_CULTIVATION_CONFIG, qos=1)
             logger.info("[MqttClient] 연결 성공, 구독 완료")
             logger.info(f"[MqttClient] 구독: {MQTT_TOPIC_COMMAND}")
             logger.info(f"[MqttClient] 구독: {MQTT_TOPIC_PHOTO_INTERVAL}")
-            logger.info(f"[MqttClient] 구독: {MQTT_TOPIC_CULTIVATION_CONFIG}")
         elif rc == 5:
             logger.error("[MqttClient] 인증 실패(rc=5) — MQTT_USER/MQTT_PASS 또는 브로커 ACL 확인 필요")
         else:
@@ -74,7 +69,7 @@ class MqttClient:
     def _on_disconnect(self, client, userdata, rc):
         logger.warning(f"[MqttClient] 연결 끊김 rc={rc}, 재연결 대기 중")
 
-    def _on_message(self, client, userdata, msg): #
+    def _on_message(self, client, userdata, msg):
         topic   = msg.topic
         payload = msg.payload.decode().strip()
         logger.info(f"[MqttClient] 수신 topic={topic} payload={payload}")
@@ -88,12 +83,3 @@ class MqttClient:
                 self.on_photo_interval_cb(hours)
             except ValueError:
                 logger.error(f"[MqttClient] photo_interval 파싱 오류: {payload}")
-
-        elif topic == MQTT_TOPIC_CULTIVATION_CONFIG:
-            try:
-                config = json.loads(payload)
-                if not isinstance(config, dict):
-                    raise ValueError("설정 JSON은 객체여야 합니다.")
-                self.on_cultivation_config_cb(config)
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"[MqttClient] cultivation-config 파싱 오류: {e}")

@@ -7,11 +7,11 @@ logger = logging.getLogger(__name__)
 
 class HttpClient:
 
-    def send_realtime(self, data: dict): #
+    def send_realtime(self, data: dict):
         """1분마다 실시간 센서값 전송 → POST /api/sensor_logs/realtime (DB 저장 X)"""
         self._post("/api/sensor_logs/realtime", self._build_payload(data))
 
-    def send_hourly(self, avg: dict): #
+    def send_hourly(self, avg: dict):
         """1시간 평균 전송 → POST /api/sensor_logs (DB 저장 O)"""
         self._post("/api/sensor_logs", self._build_payload(avg))
 
@@ -41,11 +41,14 @@ class HttpClient:
         }
         self._patch("/api/anomalies", payload)
 
-    def send_photo(self, image_bytes: bytes, yolo_result: dict, port_index: int):
-        """사진 및 YOLO 분석 결과 전송 → POST /api/photos (백엔드가 S3로 저장)"""
+    def send_photo(self, image_bytes: bytes, yolo_result: dict, port_index: int) -> bool:
+        """
+        사진 및 YOLO 분석 결과 전송 → POST /api/photos (백엔드가 S3로 저장)
+        성공 여부를 반환한다. 호출부가 업로드 실패를 촬영 실패와 구분하기 위함이다.
+        """
         if image_bytes is None or len(image_bytes) == 0:
             logger.error(f"[HttpClient] portIndex={port_index}: 이미지 비어있음, 전송 스킵")
-            return
+            return False
 
         url = SERVER_URL + "/api/photos"
         try:
@@ -64,12 +67,13 @@ class HttpClient:
                 f"[HttpClient] 사진 전송 완료 portIndex={port_index} | "
                 f"growth={data['growthResult']} disease={data['diseaseResult']}"
             )
+            return True
         except Exception as e:
             logger.error(f"[HttpClient] 사진 전송 실패 portIndex={port_index}: {e}")
+            return False
 
     # ── 내부 헬퍼 ────────────────────────────────────────────────
-    def _build_payload(self, data: dict) -> dict: #
-        raw_led_status = data.get("led_status", data.get("led"))
+    def _build_payload(self, data: dict) -> dict:
         return {
             "serial_number":      SERIAL_NUMBER,
             "temperature":        data.get("temperature"),
@@ -77,11 +81,9 @@ class HttpClient:
             "ph":                 data.get("ph"),
             "tds":                data.get("tds"),
             "water_level_status": data.get("water_level_status"),
-            "led_status":         bool(raw_led_status) if raw_led_status is not None else None,
-            "led_on_minutes_1h":  data.get("led_on_minutes_1h"),
         }
 
-    def _post(self, path: str, payload: dict): #
+    def _post(self, path: str, payload: dict):
         url = SERVER_URL + path
         try:
             res = requests.post(url, json=payload, timeout=5)
